@@ -5,7 +5,7 @@ import mkdirp from 'mkdirp';
 import chunkSorter from './lib/chunksorter';
 
 export default class PackingTemplatePlugin {
-  constructor(appConfig, options) {
+  constructor(appConfig, options = {}) {
     this.appConfig = appConfig;
     this.options = options;
   }
