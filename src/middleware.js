@@ -90,8 +90,7 @@ export default (app, appConfig, options) => {
         });
         html = templateString;
       } else {
-        console.error('模版地址不存在');
-        process.exit(1);
+        throw new Error(`Not found template at ${template}`);
       }
 
       html = html

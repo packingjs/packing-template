@@ -1,3 +1,5 @@
+/* eslint function-paren-newline: 0 */
+
 import toposort from 'toposort';
 
 /**
@@ -100,7 +102,13 @@ export default {
   },
 
   /**
-   * Defines the default sorter.
+   * common chunks order first.
    */
-  reverse: chunks => chunks.sort((a, b) => a.id < b.id)
+  commonChunksFirst: (chunks, commonChunkNames) => {
+    const commonChunks = chunks.filter(chunk => commonChunkNames.indexOf(chunk.names[0]) > -1);
+    const entryChunks = chunks.filter(chunk => commonChunkNames.indexOf(chunk.names[0]) === -1);
+    return commonChunks.concat(entryChunks);
+  },
+
+  reverse: chunks => chunks.sort((a, b) => a.names[0] < b.names[0])
 };

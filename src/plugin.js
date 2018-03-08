@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from 'fs';
-import { resolve } from 'path';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { resolve, dirname } from 'path';
 import { isString } from 'util';
+import mkdirp from 'mkdirp';
 import chunkSorter from './lib/chunksorter';
 
 export default class PackingTemplatePlugin {
@@ -31,7 +32,10 @@ export default class PackingTemplatePlugin {
   sortChunks(chunks, sortMode, chunkGroups) {
     // Sort mode auto by default:
     if (typeof sortMode === 'undefined') {
-      sortMode = 'reverse';
+      sortMode = 'commonChunksFirst';
+    }
+    if (sortMode === 'commonChunksFirst') {
+      return chunkSorter.commonChunksFirst(chunks, Object.keys(this.appConfig.commonChunks));
     }
     // Custom function
     if (typeof sortMode === 'function') {
@@ -53,6 +57,10 @@ export default class PackingTemplatePlugin {
 
   apply(compiler) {
     compiler.plugin('done', (stats) => {
+      let { publicPath } = compiler.options.output;
+      if (!publicPath.endsWith('/')) {
+        publicPath = `${publicPath}/`;
+      }
       const { CONTEXT } = process.env;
       const projectRootPath = CONTEXT ? resolve(CONTEXT) : process.cwd();
       const { path: { entries }, commonChunks } = this.appConfig;
@@ -73,7 +81,6 @@ export default class PackingTemplatePlugin {
         version: false
       };
       let allChunks = stats.compilation.getStats().toJson(chunkOnlyConfig).chunks;
-      // allChunks = allChunks.sort((a, b) => a.names[0] < b.names[0]);
       allChunks = this.sortChunks(
         allChunks,
         this.options.chunksSortMode,
@@ -92,7 +99,6 @@ export default class PackingTemplatePlugin {
             }
           }
 
-
           // 配置优先级：
           // 1. entry.settings.js（单个页面有效）
           // 2. 注册路由时传递的选项参数（所有页面有效）
@@ -105,6 +111,7 @@ export default class PackingTemplatePlugin {
             description,
             chunks,
             excludeChunks,
+            chunksSortMode,
             ...templateData
           } = {
             ...{
@@ -146,7 +153,7 @@ export default class PackingTemplatePlugin {
               const name = chunk.names[0];
               return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
             })
-            .map(chunk => `  <link href="${chunk.files[0]}" rel="stylesheet">`)
+            .map(chunk => `  <link href="${publicPath + chunk.files[0]}" rel="stylesheet">`)
             .join('\n');
 
           // 为 SEO 准备的页面 meta 信息
@@ -169,7 +176,7 @@ export default class PackingTemplatePlugin {
               const name = chunk.names[0];
               return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
             })
-            .map(chunk => `  <script src="${chunk.files[0]}"></script>`)
+            .map(chunk => `  <script src="${publicPath + chunk.files[0]}"></script>`)
             .join('\n');
 
           let html = '';
@@ -179,8 +186,7 @@ export default class PackingTemplatePlugin {
             });
             html = templateString;
           } else {
-            console.error('模版地址不存在');
-            process.exit(1);
+            throw new Error(`Not found template at ${template}`);
           }
 
           html = html
@@ -198,7 +204,10 @@ export default class PackingTemplatePlugin {
           if (scriptHtml) {
             html = html.replace(`</${inject}>`, `${scriptHtml}\n  </${inject}>`);
           }
-          console.log(html);
+          const filename = resolve(projectRootPath, this.appConfig.path.templatesDist, `${chunkName}.html`);
+          mkdirp.sync(dirname(filename));
+          writeFileSync(filename, html);
+          console.log(`${filename} created.`);
         });
     });
 
