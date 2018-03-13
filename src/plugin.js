@@ -3,11 +3,12 @@ import { resolve, dirname } from 'path';
 import { isString } from 'util';
 import mkdirp from 'mkdirp';
 import chunkSorter from './lib/chunksorter';
+import assetsReplacer from './lib/assetsreplacer';
 
 export default class PackingTemplatePlugin {
-  constructor(appConfig, options = {}) {
+  constructor(appConfig, options) {
     this.appConfig = appConfig;
-    this.options = options;
+    this.options = options || {};
   }
 
   filterChunks(chunks) {
@@ -56,8 +57,52 @@ export default class PackingTemplatePlugin {
   }
 
   apply(compiler) {
+    // compiler.plugin('compilation', (compilation) => {
+    //   console.log('--compilation.modules:', compilation.modules);
+    // });
+    // compiler.plugin('make', (compilation, callback) => {
+    //   console.log('--make.modules:', compilation.modules);
+    //   callback();
+    // });
+    // compiler.plugin('after-compile', (compilation, callback) => {
+    //   console.log('--after-compile.modules:', compilation.modules);
+    //   compilation.chunks[0].addModule()
+    //   compilation.modules.push(newModule);
+    //   callback();
+    // });
+    // compiler.plugin('should-emit', (compilation, callback) => {
+    //   console.log('--should-emit.modules:', compilation.modules);
+    //   callback();
+    // });
+    //
+    // compiler.plugin('emit', (compilation) => {
+    //   console.log('--emit.modules:', compilation.modules);
+    // });
+
+    // compiler.plugin('compilation', (compilation) => {
+    //   const output = 'require("./1.jpg");require("./images/1.jpg");';
+    //   compilation.assets['js/joe.js'] = {
+    //     source: () => output,
+    //     size: () => output.length
+    //   };
+    // });
+
+    compiler.plugin('emit', (compilation, callback) => {
+      // compilation.chunks.splice(0, 1);
+      // 删除 __.js，方便其他地方使用 assets
+      Object.keys(compilation.assets).forEach((key) => {
+        if (/js\/___\w+.js/.test(key)) {
+          delete compilation.assets[key];
+        }
+      });
+      callback();
+    });
+
     compiler.plugin('done', (stats) => {
       let { publicPath } = compiler.options.output;
+      // compiler.options.module.rules.forEach((rule) => {
+      //   console.log(rule.test.toString());
+      // });
       if (!publicPath.endsWith('/')) {
         publicPath = `${publicPath}/`;
       }
@@ -66,7 +111,7 @@ export default class PackingTemplatePlugin {
       const { path: { entries }, commonChunks } = this.appConfig;
 
       const chunkOnlyConfig = {
-        assets: false,
+        assets: true,
         cached: false,
         children: false,
         chunks: true,
@@ -80,7 +125,9 @@ export default class PackingTemplatePlugin {
         timings: false,
         version: false
       };
-      let allChunks = stats.compilation.getStats().toJson(chunkOnlyConfig).chunks;
+      const statsJson = stats.compilation.getStats().toJson(chunkOnlyConfig);
+      const { assets } = statsJson;
+      let allChunks = statsJson.chunks;
       allChunks = this.sortChunks(
         allChunks,
         this.options.chunksSortMode,
@@ -89,13 +136,19 @@ export default class PackingTemplatePlugin {
 
       // 该 entries 信息包含 commonChunks 配置
       Object.keys(entries)
+        // 排除手动引用静态资源的入口
+        .filter(entry => entry !== '__')
+        // 排除 commonChunks 入口
         .filter(entry => Object.keys(commonChunks).indexOf(entry) < 0)
         .forEach((chunkName) => {
           let settings = {};
           if (isString(entries[chunkName])) {
             const settingsFile = resolve(projectRootPath, entries[chunkName].replace('.js', '.settings.js'));
             if (existsSync(settingsFile)) {
-              settings = require(settingsFile).default;
+              settings = require(settingsFile);
+              if (settings.default) {
+                settings = settings.default;
+              }
             }
           }
 
@@ -147,13 +200,22 @@ export default class PackingTemplatePlugin {
           */
 
           // page chunk 样式引用代码
-          const styleHtml = allChunks
-            .filter(chunk => chunk.files[0].endsWith('.css'))
+          const styles = [];
+          allChunks
             .filter((chunk) => {
               const name = chunk.names[0];
               return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
             })
-            .map(chunk => `  <link href="${publicPath + chunk.files[0]}" rel="stylesheet">`)
+            .forEach((chunk) => {
+              chunk.files
+                .filter(file => file.endsWith('.css'))
+                .forEach((file) => {
+                  styles.push(file);
+                });
+            });
+
+          const styleHtml = styles
+            .map(file => `  <link href="${publicPath + file}" rel="stylesheet">`)
             .join('\n');
 
           // 为 SEO 准备的页面 meta 信息
@@ -171,7 +233,7 @@ export default class PackingTemplatePlugin {
 
           // common chunks 和 page chunk 脚本引用代码
           const scriptHtml = allChunks
-            .filter(chunk => chunk.files[0].endsWith('.js'))
+            // .filter(chunk => chunk.files[0].endsWith('.js'))
             .filter((chunk) => {
               const name = chunk.names[0];
               return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
@@ -186,7 +248,7 @@ export default class PackingTemplatePlugin {
             });
             html = templateString;
           } else {
-            throw new Error(`Not found template at ${template}`);
+            throw new Error(`\nNot found template at ${template}\n`);
           }
 
           html = html
@@ -196,6 +258,7 @@ export default class PackingTemplatePlugin {
           if (metaHtml) {
             html = html.replace('</head>', `${metaHtml}\n  </head>`);
           }
+          html = assetsReplacer(html, { assets, publicPath, rules: compiler.options.module.rules });
 
           if (styleHtml) {
             html = html.replace('</head>', `${styleHtml}\n  </head>`);

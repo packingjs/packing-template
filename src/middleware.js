@@ -15,12 +15,15 @@ export default (app, appConfig, options) => {
   const { path: { entries }, commonChunks } = appConfig;
 
   // 根据 entry 信息在 express 中添加路由
-  Object.keys(entries).forEach((chunkName) => {
+  Object.keys(entries).filter(entry => entry !== '__').forEach((chunkName) => {
     app.get(`/${chunkName}`, (req, res) => {
       const settingsFile = resolve(projectRootPath, entries[chunkName].replace('.js', '.settings.js'));
       let settings = {};
       if (existsSync(settingsFile)) {
-        settings = require(settingsFile).default;
+        settings = require(settingsFile);
+        if (settings.default) {
+          settings = settings.default;
+        }
       }
 
       // 配置优先级：
@@ -38,7 +41,7 @@ export default (app, appConfig, options) => {
         ...templateData
       } = {
         ...{
-          template: resolve(__dirname, 'templates/default.html'),
+          template: resolve(__dirname, '../templates/default.html'),
           inject: 'body',
           charset: 'UTF-8',
           title: 'untitled',
@@ -55,6 +58,7 @@ export default (app, appConfig, options) => {
 
       const { assetsByChunkName } = res.locals.webpackStats.toJson();
       // page chunk 样式引用代码
+      // 开发环境 css inline js，所以输出基本不会有 css
       const styleHtml = Object.keys(assetsByChunkName)
         .filter(key => assetsByChunkName[key].endsWith('.css'))
         .filter(key => key === chunkName || Object.keys(commonChunks).indexOf(key) > -1)
@@ -78,6 +82,7 @@ export default (app, appConfig, options) => {
       const scriptHtml = Object.keys(commonChunks)
         .map(key => `  <script src="${key}.js"></script>`)
         .concat(Object.keys(assetsByChunkName)
+          // .filter(key => key !== '__')
           .filter(key => assetsByChunkName[key].endsWith('.js'))
           .filter(key => key === chunkName || Object.keys(commonChunks).indexOf(key) > -1)
           .map(key => `  <script src="${assetsByChunkName[key]}"></script>`))
