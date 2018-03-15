@@ -6,9 +6,9 @@ import chunkSorter from './lib/chunksorter';
 import assetsReplacer from './lib/assetsreplacer';
 
 export default class PackingTemplatePlugin {
-  constructor(appConfig, options) {
+  constructor(appConfig, options = {}) {
     this.appConfig = appConfig;
-    this.options = options || {};
+    this.options = options;
   }
 
   filterChunks(chunks) {
@@ -165,6 +165,7 @@ export default class PackingTemplatePlugin {
             chunks,
             excludeChunks,
             chunksSortMode,
+            attrs,
             ...templateData
           } = {
             ...{
@@ -177,7 +178,8 @@ export default class PackingTemplatePlugin {
               description: false,
               chunks: null,
               excludeChunks: null,
-              chunksSortMode: null
+              chunksSortMode: null,
+              attrs: ['img:src', 'link:href']
             },
             ...this.options,
             ...settings
@@ -258,7 +260,12 @@ export default class PackingTemplatePlugin {
           if (metaHtml) {
             html = html.replace('</head>', `${metaHtml}\n  </head>`);
           }
-          html = assetsReplacer(html, { assets, publicPath, rules: compiler.options.module.rules });
+          html = assetsReplacer(html, {
+            attrs,
+            assets,
+            publicPath,
+            rules: compiler.options.module.rules
+          });
 
           if (styleHtml) {
             html = html.replace('</head>', `${styleHtml}\n  </head>`);

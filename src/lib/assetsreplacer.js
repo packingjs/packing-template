@@ -18,11 +18,23 @@ chunks: [ { id: 'b',
 
 import path from 'path';
 
-export default (html, options) => {
-  const reg = /(?:src|href)\s*=\s*["']([^"']+)/g;
+function parseAttribute(attribute) {
+  const arr = attribute.split(':');
+  if (arr.length !== 2) {
+    throw new Error(`[error] PackingTemplatePlugin: attributes 参数格式错误：${attribute}`);
+  }
+  return {
+    tag: arr[0] === '*' ? '' : arr[0],
+    attribute: arr[1].replace('-', '\\-')
+  };
+}
 
+export default (html, options) => {
   const {
-    assets, publicPath, rules
+    assets,
+    publicPath,
+    rules,
+    attrs
   } = {
     ...{
       assets: [],
@@ -34,14 +46,22 @@ export default (html, options) => {
 
   const matches = [];
   let result;
-  while(result = reg.exec(html)) { // eslint-disable-line
-    const a = result[0].replace(result[1], '');
-    matches.push({
-      start: result.index + a.length,
-      length: result[1].length,
-      value: result[1]
-    });
-  }
+  attrs.forEach((a) => {
+    const { tag, attribute } = parseAttribute(a);
+    const reg = new RegExp(`${tag}.*\\s+(?:${attribute})\\s*=\\s*["']([^"']+)`, 'g');
+    while(result = reg.exec(html)) { // eslint-disable-line
+      const head = result[0].replace(result[1], ''); // => src="
+      matches.push({
+        start: result.index + head.length,
+        length: result[1].length,
+        value: result[1]
+      });
+    }
+  });
+
+  // 经过 forEach 后的匹配结果不一定是按照 start 正序排列
+  // 这里需要对 matches 重新排序
+  matches.sort((a, b) => a.start > b.start);
 
   html = html.split('');
   matches.reverse().forEach((link) => {
