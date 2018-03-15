@@ -112,7 +112,6 @@ export default (html, options) => {
           }
         });
 
-        const pattern = nameFormat
           .replace('[path]', dir ? `${dir}/` : '')
           .replace('[name]', name)
           .replace('[ext]', ext.replace('.', ''))
