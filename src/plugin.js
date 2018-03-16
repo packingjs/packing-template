@@ -56,233 +56,211 @@ export default class PackingTemplatePlugin {
     throw new Error(`"${sortMode}" is not a valid chunk sort mode`);
   }
 
-  apply(compiler) {
-    // compiler.plugin('compilation', (compilation) => {
-    //   console.log('--compilation.modules:', compilation.modules);
-    // });
-    // compiler.plugin('make', (compilation, callback) => {
-    //   console.log('--make.modules:', compilation.modules);
-    //   callback();
-    // });
-    // compiler.plugin('after-compile', (compilation, callback) => {
-    //   console.log('--after-compile.modules:', compilation.modules);
-    //   compilation.chunks[0].addModule()
-    //   compilation.modules.push(newModule);
-    //   callback();
-    // });
-    // compiler.plugin('should-emit', (compilation, callback) => {
-    //   console.log('--should-emit.modules:', compilation.modules);
-    //   callback();
-    // });
-    //
-    // compiler.plugin('emit', (compilation) => {
-    //   console.log('--emit.modules:', compilation.modules);
-    // });
-
-    // compiler.plugin('compilation', (compilation) => {
-    //   const output = 'require("./1.jpg");require("./images/1.jpg");';
-    //   compilation.assets['js/joe.js'] = {
-    //     source: () => output,
-    //     size: () => output.length
-    //   };
-    // });
-
-    compiler.plugin('emit', (compilation, callback) => {
-      // compilation.chunks.splice(0, 1);
-      // 删除 __.js，方便其他地方使用 assets
-      Object.keys(compilation.assets).forEach((key) => {
-        if (/js\/___\w+.js/.test(key)) {
-          delete compilation.assets[key];
-        }
-      });
-      callback();
-    });
-
-    compiler.plugin('done', (stats) => {
-      let { publicPath } = compiler.options.output;
-      // compiler.options.module.rules.forEach((rule) => {
-      //   console.log(rule.test.toString());
-      // });
-      if (!publicPath.endsWith('/')) {
-        publicPath = `${publicPath}/`;
+  emit(compilation, callback) {
+    // 删除 __.js，方便其他地方使用 assets
+    Object.keys(compilation.assets).forEach((key) => {
+      if (/js\/___\w+.js/.test(key)) {
+        delete compilation.assets[key];
       }
-      const { CONTEXT } = process.env;
-      const projectRootPath = CONTEXT ? resolve(CONTEXT) : process.cwd();
-      const { path: { entries }, commonChunks } = this.appConfig;
+    });
+    callback();
+  }
 
-      const chunkOnlyConfig = {
-        assets: true,
-        cached: false,
-        children: false,
-        chunks: true,
-        chunkModules: false,
-        chunkOrigins: false,
-        errorDetails: false,
-        hash: false,
-        modules: false,
-        reasons: false,
-        source: false,
-        timings: false,
-        version: false
-      };
-      const statsJson = stats.compilation.getStats().toJson(chunkOnlyConfig);
-      const { assets } = statsJson;
-      let allChunks = statsJson.chunks;
-      allChunks = this.sortChunks(
-        allChunks,
-        this.options.chunksSortMode,
-        stats.compilation.chunkGroups
-      );
+  done(compiler, stats) {
+    let { publicPath } = compiler.options.output;
+    // compiler.options.module.rules.forEach((rule) => {
+    //   console.log(rule.test.toString());
+    // });
+    if (!publicPath.endsWith('/')) {
+      publicPath = `${publicPath}/`;
+    }
+    const { CONTEXT } = process.env;
+    const projectRootPath = CONTEXT ? resolve(CONTEXT) : process.cwd();
+    const { path: { entries }, commonChunks } = this.appConfig;
 
-      // 该 entries 信息包含 commonChunks 配置
-      Object.keys(entries)
-        // 排除手动引用静态资源的入口
-        .filter(entry => entry !== '__')
-        // 排除 commonChunks 入口
-        .filter(entry => Object.keys(commonChunks).indexOf(entry) < 0)
-        .forEach((chunkName) => {
-          let settings = {};
-          if (isString(entries[chunkName])) {
-            const settingsFile = resolve(projectRootPath, entries[chunkName].replace('.js', '.settings.js'));
-            if (existsSync(settingsFile)) {
-              settings = require(settingsFile);
-              if (settings.default) {
-                settings = settings.default;
-              }
+    const chunkOnlyConfig = {
+      assets: true,
+      cached: false,
+      children: false,
+      chunks: true,
+      chunkModules: false,
+      chunkOrigins: false,
+      errorDetails: false,
+      hash: false,
+      modules: false,
+      reasons: false,
+      source: false,
+      timings: false,
+      version: false
+    };
+    const statsJson = stats.compilation.getStats().toJson(chunkOnlyConfig);
+    const { assets } = statsJson;
+    let allChunks = statsJson.chunks;
+    allChunks = this.sortChunks(
+      allChunks,
+      this.options.chunksSortMode,
+      stats.compilation.chunkGroups
+    );
+
+    // 该 entries 信息包含 commonChunks 配置
+    Object.keys(entries)
+      // 排除手动引用静态资源的入口
+      .filter(entry => entry !== '__')
+      // 排除 commonChunks 入口
+      .filter(entry => Object.keys(commonChunks).indexOf(entry) < 0)
+      .forEach((chunkName) => {
+        let settings = {};
+        if (isString(entries[chunkName])) {
+          const settingsFile = resolve(projectRootPath, entries[chunkName].replace('.js', '.settings.js'));
+          if (existsSync(settingsFile)) {
+            settings = require(settingsFile);
+            if (settings.default) {
+              settings = settings.default;
             }
           }
+        }
 
-          // 配置优先级：
-          // 1. entry.settings.js（单个页面有效）
-          // 2. 注册路由时传递的选项参数（所有页面有效）
-          // 3. 默认参数
-          const {
-            template,
-            inject,
-            favicon,
-            keywords,
-            description,
-            chunks,
-            excludeChunks,
-            chunksSortMode,
-            attrs,
-            ...templateData
-          } = {
-            ...{
-              template: resolve(__dirname, '../templates/default.html'),
-              inject: 'body',
-              charset: 'UTF-8',
-              title: 'untitled',
-              favicon: false,
-              keywords: false,
-              description: false,
-              chunks: null,
-              excludeChunks: null,
-              chunksSortMode: null,
-              attrs: ['img:src', 'link:href']
-            },
-            ...this.options,
-            ...settings
-          };
+        // 配置优先级：
+        // 1. entry.settings.js（单个页面有效）
+        // 2. 注册路由时传递的选项参数（所有页面有效）
+        // 3. 默认参数
+        const {
+          template,
+          inject,
+          favicon,
+          keywords,
+          description,
+          chunks,
+          excludeChunks,
+          chunksSortMode,
+          attrs,
+          ...templateData
+        } = {
+          ...{
+            template: resolve(__dirname, '../templates/default.html'),
+            inject: 'body',
+            charset: 'UTF-8',
+            title: 'untitled',
+            favicon: false,
+            keywords: false,
+            description: false,
+            chunks: null,
+            excludeChunks: null,
+            chunksSortMode: null,
+            attrs: ['img:src', 'link:href']
+          },
+          ...this.options,
+          ...settings
+        };
 
-          /*
-          chunks: [ { id: 'b',
-              rendered: true,
-              initial: true,
-              entry: true,
-              recorded: undefined,
-              reason: undefined,
-              size: 102,
-              names: [ 'b' ],
-              files: [ 'js/b_f4ca94c8.js' ],
-              hash: 'f4ca94c8027f4cba2186',
-              siblings: [],
-              parents: [],
-              children: [] }
-          */
+        /*
+        chunks: [ { id: 'b',
+            rendered: true,
+            initial: true,
+            entry: true,
+            recorded: undefined,
+            reason: undefined,
+            size: 102,
+            names: [ 'b' ],
+            files: [ 'js/b_f4ca94c8.js' ],
+            hash: 'f4ca94c8027f4cba2186',
+            siblings: [],
+            parents: [],
+            children: [] }
+        */
 
-          // page chunk 样式引用代码
-          const styles = [];
-          allChunks
-            .filter((chunk) => {
-              const name = chunk.names[0];
-              return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
-            })
-            .forEach((chunk) => {
-              chunk.files
-                .filter(file => file.endsWith('.css'))
-                .forEach((file) => {
-                  styles.push(file);
-                });
-            });
-
-          const styleHtml = styles
-            .map(file => `  <link href="${publicPath + file}" rel="stylesheet">`)
-            .join('\n');
-
-          // 为 SEO 准备的页面 meta 信息
-          const metaTags = [];
-          if (keywords) {
-            metaTags.push(`  <meta name="keywords" content="${keywords}">`);
-          }
-          if (description) {
-            metaTags.push(`  <meta name="description" content="${description}">`);
-          }
-          if (favicon) {
-            metaTags.push(`  <link rel="icon" type="image/png" href="${favicon}">`);
-          }
-          const metaHtml = metaTags.join('\n');
-
-          // common chunks 和 page chunk 脚本引用代码
-          const scriptHtml = allChunks
-            // .filter(chunk => chunk.files[0].endsWith('.js'))
-            .filter((chunk) => {
-              const name = chunk.names[0];
-              return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
-            })
-            .map(chunk => `  <script src="${publicPath + chunk.files[0]}"></script>`)
-            .join('\n');
-
-          let html = '';
-          if (existsSync(template)) {
-            const templateString = readFileSync(template, {
-              encoding: 'utf-8'
-            });
-            html = templateString;
-          } else {
-            throw new Error(`\nNot found template at ${template}\n`);
-          }
-
-          html = html
-            // 替换格式为 __var__ 用户自定义变量
-            .replace(/__(\w+)__/gm, (re, $1) => templateData[$1] || '');
-
-          if (metaHtml) {
-            html = html.replace('</head>', `${metaHtml}\n  </head>`);
-          }
-          html = assetsReplacer(html, {
-            attrs,
-            assets,
-            publicPath,
-            rules: compiler.options.module.rules
+        // page chunk 样式引用代码
+        const styles = [];
+        allChunks
+          .filter((chunk) => {
+            const name = chunk.names[0];
+            return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
+          })
+          .forEach((chunk) => {
+            chunk.files
+              .filter(file => file.endsWith('.css'))
+              .forEach((file) => {
+                styles.push(file);
+              });
           });
 
-          if (styleHtml) {
-            html = html.replace('</head>', `${styleHtml}\n  </head>`);
-          }
+        const styleHtml = styles
+          .map(file => `  <link href="${publicPath + file}" rel="stylesheet">`)
+          .join('\n');
 
-          if (scriptHtml) {
-            html = html.replace(`</${inject}>`, `${scriptHtml}\n  </${inject}>`);
-          }
-          const filename = resolve(projectRootPath, this.appConfig.path.templatesDist, `${chunkName}.html`);
-          mkdirp.sync(dirname(filename));
-          writeFileSync(filename, html);
-          console.log(`${filename} created.`);
+        // 为 SEO 准备的页面 meta 信息
+        const metaTags = [];
+        if (keywords) {
+          metaTags.push(`  <meta name="keywords" content="${keywords}">`);
+        }
+        if (description) {
+          metaTags.push(`  <meta name="description" content="${description}">`);
+        }
+        if (favicon) {
+          metaTags.push(`  <link rel="icon" type="image/png" href="${favicon}">`);
+        }
+        const metaHtml = metaTags.join('\n');
+
+        // common chunks 和 page chunk 脚本引用代码
+        const scriptHtml = allChunks
+          // .filter(chunk => chunk.files[0].endsWith('.js'))
+          .filter((chunk) => {
+            const name = chunk.names[0];
+            return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
+          })
+          .map(chunk => `  <script src="${publicPath + chunk.files[0]}"></script>`)
+          .join('\n');
+
+        let html = '';
+        if (existsSync(template)) {
+          const templateString = readFileSync(template, {
+            encoding: 'utf-8'
+          });
+          html = templateString;
+        } else {
+          throw new Error(`\nNot found template at ${template}\n`);
+        }
+
+        html = html
+          // 替换格式为 __var__ 用户自定义变量
+          .replace(/__(\w+)__/gm, (re, $1) => templateData[$1] || '');
+
+        if (metaHtml) {
+          html = html.replace('</head>', `${metaHtml}\n  </head>`);
+        }
+        html = assetsReplacer(html, {
+          attrs,
+          assets,
+          publicPath,
+          rules: compiler.options.module.rules
         });
-    });
 
-    // compiler.hooks.compilation.tap('HtmlWebpackPluginHooks', compilation => {
-    //
-    // });
+        if (styleHtml) {
+          html = html.replace('</head>', `${styleHtml}\n  </head>`);
+        }
+
+        if (scriptHtml) {
+          html = html.replace(`</${inject}>`, `${scriptHtml}\n  </${inject}>`);
+        }
+        const filename = resolve(projectRootPath, this.appConfig.path.templatesDist, `${chunkName}.html`);
+        mkdirp.sync(dirname(filename));
+        writeFileSync(filename, html);
+        console.log(`${filename} created.`);
+      });
+  }
+
+  apply(compiler) {
+    // webpack v4
+    if (compiler.hooks) {
+      compiler.hooks.emit.tapAsync(this.constructor.name, this.emit);
+      compiler.hooks.done.tap(this.constructor.name, (stats) => {
+        this.done(compiler, stats);
+      });
+    } else {
+      compiler.plugin('emit', this.emit);
+      compiler.plugin('done', (stats) => {
+        this.done(compiler, stats);
+      });
+    }
   }
 }
