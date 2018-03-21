@@ -36,14 +36,31 @@ import { resolve, dirname, parse } from 'path';
 import { isString } from 'util';
 import mkdirp from 'mkdirp';
 import loaderUtils from 'loader-utils';
+import glob from 'packing-glob';
 import chunkSorter from './lib/chunksorter';
 
 export default class PackingTemplatePlugin {
   constructor(appConfig, options = {}) {
     const { CONTEXT } = process.env;
+    const { path: { templatesPages }, templateExtension } = appConfig;
     this.context = CONTEXT ? resolve(CONTEXT) : process.cwd();
     this.appConfig = appConfig;
-    this.options = options;
+    this.options = {
+      ...{
+        template: resolve(this.context, `${templatesPages}/default${templateExtension}`),
+        inject: 'body',
+        charset: 'UTF-8',
+        title: '',
+        favicon: false,
+        keywords: false,
+        description: false,
+        chunks: null,
+        excludeChunks: null,
+        chunksSortMode: 'commonChunksFirst',
+        attrs: ['img:src', 'link:href']
+      },
+      ...options
+    };
     this.pages = {};
   }
 
@@ -106,9 +123,14 @@ export default class PackingTemplatePlugin {
   }
 
   done(compiler, stats) {
+    const { templateEngine } = this.appConfig;
     this.generatePages();
     this.getAssetsMap(compiler);
     this.output(compiler, stats);
+
+    if (templateEngine === 'pug') {
+      this.copyAndReplaceLayout(compiler);
+    }
   }
 
   generatePages() {
@@ -135,24 +157,12 @@ export default class PackingTemplatePlugin {
         // 2. 注册路由时传递的选项参数（所有页面有效）
         // 3. 默认参数
         const args = {
-          ...{
-            template: resolve(__dirname, '../templates/default.html'),
-            inject: 'body',
-            charset: 'UTF-8',
-            title: 'untitled',
-            favicon: false,
-            keywords: false,
-            description: false,
-            chunks: null,
-            excludeChunks: null,
-            chunksSortMode: null,
-            attrs: ['img:src', 'link:href']
-          },
           ...this.options,
           ...settings
         };
 
         const {
+          title,
           template,
           inject,
           favicon,
@@ -165,19 +175,6 @@ export default class PackingTemplatePlugin {
           ...templateData
         } = args;
 
-        // 为 SEO 准备的页面 meta 信息
-        const metaTags = [];
-        if (keywords) {
-          metaTags.push(`  <meta name="keywords" content="${keywords}">`);
-        }
-        if (description) {
-          metaTags.push(`  <meta name="description" content="${description}">`);
-        }
-        if (favicon) {
-          metaTags.push(`  <link rel="icon" type="image/png" href="${favicon}">`);
-        }
-        const metaHtml = metaTags.join('\n');
-
         let html = '';
         if (existsSync(template)) {
           const templateString = readFileSync(template, {
@@ -188,27 +185,26 @@ export default class PackingTemplatePlugin {
           throw new Error(`\nNot found template at ${template}\n`);
         }
 
-        html = html
-          // 替换格式为 __var__ 用户自定义变量
-          .replace(/__(\w+)__/gm, (re, $1) => templateData[$1] || '');
-
-        if (metaHtml) {
-          html = html.replace('</head>', `${metaHtml}\n  </head>`);
-        }
+        html = this.injectTitle(html, title);
+        html = this.injectMeta(html, favicon, keywords, description);
+        // 替换格式为 __var__ 用户自定义变量
+        html = html.replace(/__(\w+)__/gm, (re, $1) => templateData[$1] || '');
 
         this.pages[chunkName] = { args, html };
       });
   }
 
   getAssetsMap(compiler) {
-    const { fileHashLength } = this.appConfig;
+    const { fileHashLength, templateEngine } = this.appConfig;
 
     Object.keys(this.pages).forEach((chunkName) => {
       const matches = [];
       const { args, html } = this.pages[chunkName];
       args.attrs.forEach((a) => {
         const { tag, attribute } = this.parseAttribute(a);
-        const reg = new RegExp(`${tag}.*\\s+(?:${attribute})\\s*=\\s*["']([^"']+)`, 'g');
+        const reg = templateEngine === 'pug' ?
+          new RegExp(`${tag}(?:\\(.*\\s+|\\()(?:${attribute})\\s*=\\s*["']([^"']+)`, 'g') :
+          new RegExp(`${tag}.*\\s+(?:${attribute})\\s*=\\s*["']([^"']+)`, 'g');
         let result;
 
         while(result = reg.exec(html)) { // eslint-disable-line
@@ -252,7 +248,11 @@ export default class PackingTemplatePlugin {
   }
 
   output(compiler, stats) {
-    const { commonChunks } = this.appConfig;
+    const {
+      path: { templatesPagesDist },
+      commonChunks,
+      templateExtension
+    } = this.appConfig;
     let { publicPath } = compiler.options.output;
     if (!publicPath.endsWith('/')) {
       publicPath = `${publicPath}/`;
@@ -292,46 +292,84 @@ export default class PackingTemplatePlugin {
       });
       html = html.join('');
 
-      // page chunk 样式引用代码
-      const styles = [];
-      allChunks
-        .filter((chunk) => {
-          const name = chunk.names[0];
-          return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
-        })
-        .forEach((chunk) => {
-          chunk.files
-            .filter(file => file.endsWith('.css'))
-            .forEach((file) => {
-              styles.push(file);
-            });
-        });
+      html = this.injectStyles(html, chunkName, allChunks, commonChunks, publicPath);
+      html = this.injectScripts(html, chunkName, allChunks, commonChunks, publicPath, inject);
 
-      const styleHtml = styles
-        .map(file => `  <link href="${publicPath + file}" rel="stylesheet">`)
-        .join('\n');
-
-      // common chunks 和 page chunk 脚本引用代码
-      const scriptHtml = allChunks
-        // .filter(chunk => chunk.files[0].endsWith('.js'))
-        .filter((chunk) => {
-          const name = chunk.names[0];
-          return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
-        })
-        .map(chunk => `  <script src="${publicPath + chunk.files[0]}"></script>`)
-        .join('\n');
-
-      if (styleHtml) {
-        html = html.replace('</head>', `${styleHtml}\n  </head>`);
-      }
-
-      if (scriptHtml) {
-        html = html.replace(`</${inject}>`, `${scriptHtml}\n  </${inject}>`);
-      }
-
-      const filename = resolve(this.context, this.appConfig.path.templatesDist, `${chunkName}.html`);
+      const filename = resolve(this.context, templatesPagesDist, `${chunkName + templateExtension}`);
       mkdirp.sync(dirname(filename));
       writeFileSync(filename, html);
+    });
+  }
+
+  copyAndReplaceLayout(compiler) {
+    const { path: { templates, templatesDist }, fileHashLength } = this.appConfig;
+    const { attrs } = this.options;
+
+    let { publicPath } = compiler.options.output;
+    if (!publicPath.endsWith('/')) {
+      publicPath = `${publicPath}/`;
+    }
+
+    const layouts = glob('**/*.pug', { cwd: resolve(this.context, templates, 'layout') });
+
+    layouts.forEach((layout) => {
+      const absPath = resolve(this.context, templates, 'layout', layout);
+      let html = readFileSync(absPath, {
+        encoding: 'utf-8'
+      });
+      const matches = [];
+      attrs.forEach((a) => {
+        const { tag, attribute } = this.parseAttribute(a);
+        const reg = new RegExp(`${tag}(?:\\(.*\\s+|\\()(?:${attribute})\\s*=\\s*["']([^"']+)`, 'g');
+        let result;
+
+        while(result = reg.exec(html)) { // eslint-disable-line
+          const value = result[1];
+          if (!/^(https{0,1}:){0,1}\/\//.test(value)) {
+            const head = result[0].replace(value, ''); // => src="
+            const file = resolve(this.context, value);
+            if (existsSync(file) && statSync(file).isFile()) {
+              const content = readFileSync(file);
+              const {
+                name,
+                ext,
+                dir // ,
+                // base
+              } = parse(value);
+              const hash = this.getHashDigest(content);
+              const pattern = '[path][name]_[hash:8].[ext]';
+              const newValue = pattern
+                .replace('[path]', dir ? `${dir}/` : '')
+                .replace('[name]', name)
+                .replace('[ext]', ext.replace('.', ''))
+                .replace('[hash:8]', hash.substr(0, fileHashLength));
+              const dist = resolve(compiler.options.output.path, newValue);
+              mkdirp.sync(dirname(dist));
+              if (!existsSync(dist)) {
+                writeFileSync(dist, content);
+              }
+              matches.push({
+                start: result.index + head.length,
+                length: value.length,
+                value,
+                newValue
+              });
+            }
+          }
+        }
+      });
+      matches.sort((a, b) => a.start > b.start);
+
+      // 输出 layout
+      html = html.split('');
+      matches.reverse().forEach((link) => {
+        const url = publicPath + link.newValue;
+        html.splice(link.start, link.length, url);
+      });
+
+      const filename = resolve(this.context, templatesDist, 'layout', layout);
+      mkdirp.sync(dirname(filename));
+      writeFileSync(filename, html.join(''));
     });
   }
 
@@ -348,5 +386,124 @@ export default class PackingTemplatePlugin {
       tag: arr[0] === '*' ? '' : arr[0],
       attribute: arr[1].replace('-', '\\-')
     };
+  }
+
+  injectTitle(html, title) {
+    const { templateEngine } = this.appConfig;
+    if (title) {
+      // 为 SEO 准备的页面 meta 信息
+      if (templateEngine === 'pug') {
+        html = `${html}\nblock title\n  title ${title}\n`;
+      } else {
+        html = html.replace('__title__', title);
+      }
+    }
+    return html;
+  }
+
+  injectMeta(html, favicon, keywords, description) {
+    const { templateEngine } = this.appConfig;
+    // 为 SEO 准备的页面 meta 信息
+    if (templateEngine === 'pug') {
+      const metaTags = [];
+      if (keywords) {
+        metaTags.push(`  meta(name="keywords" content="${keywords}")`);
+      }
+      if (description) {
+        metaTags.push(`  meta(name="description" content="${description}")`);
+      }
+      if (favicon) {
+        metaTags.push(`  link(rel="icon" type="image/png" href="${favicon}")`);
+      }
+      const metaHtml = metaTags.join('\n');
+      if (metaHtml) {
+        html = `${html}\nblock append meta\n${metaHtml}\n`;
+      }
+    } else {
+      const metaTags = [];
+      if (keywords) {
+        metaTags.push(`  <meta name="keywords" content="${keywords}">`);
+      }
+      if (description) {
+        metaTags.push(`  <meta name="description" content="${description}">`);
+      }
+      if (favicon) {
+        metaTags.push(`  <link rel="icon" type="image/png" href="${favicon}">`);
+      }
+      const metaHtml = metaTags.join('\n');
+      if (metaHtml) {
+        html = html.replace('</head>', `${metaHtml}\n  </head>`);
+      }
+    }
+
+    return html;
+  }
+
+  injectStyles(html, chunkName, allChunks, commonChunks, publicPath) {
+    const { templateEngine } = this.appConfig;
+    const styles = [];
+    allChunks
+      .filter((chunk) => {
+        const name = chunk.names[0];
+        return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
+      })
+      .forEach((chunk) => {
+        chunk.files
+          .filter(file => file.endsWith('.css'))
+          .forEach((file) => {
+            styles.push(file);
+          });
+      });
+
+    if (styles.length > 0) {
+      let styleHtml;
+      if (templateEngine === 'pug') {
+        styleHtml = `block append style\n${
+          styles
+            .map(file => `  link(href="${publicPath + file}" rel="stylesheet")`)
+            .join('\n')
+        }`;
+        html = `${html}\n${styleHtml}\n`;
+      } else {
+        styleHtml = styles
+          .map(file => `  <link href="${publicPath + file}" rel="stylesheet">`)
+          .join('\n');
+        html = html.replace('</head>', `${styleHtml}\n  </head>`);
+      }
+    }
+
+    return html;
+  }
+
+  injectScripts(html, chunkName, allChunks, commonChunks, publicPath, inject) {
+    const { templateEngine } = this.appConfig;
+
+    // common chunks 和 page chunk 脚本引用代码
+    allChunks = allChunks
+      // .filter(chunk => chunk.files[0].endsWith('.js'))
+      .filter((chunk) => {
+        const name = chunk.names[0];
+        return name === chunkName || Object.keys(commonChunks).indexOf(name) > -1;
+      });
+
+    if (allChunks.length > 0) {
+      const scriptHtml = allChunks
+        .map((chunk) => {
+          if (templateEngine === 'pug') {
+            return `  script(src="${publicPath + chunk.files[0]}")`;
+          }
+          return `  <script src="${publicPath + chunk.files[0]}"></script>`;
+        })
+        .join('\n');
+
+      if (templateEngine === 'pug') {
+        html = `${html}\nblock append script\n${scriptHtml}\n`;
+      } else {
+        // html = html.replace('</head>', `${styleHtml}\n  </head>`);
+        html = html.replace(`</${inject}>`, `${scriptHtml}\n  </${inject}>`);
+      }
+    }
+
+    return html;
   }
 }

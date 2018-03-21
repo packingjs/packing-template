@@ -253,3 +253,17 @@ chunk 包在页面中插入的顺序。
 默认值: `[img:src, link:href]`
 
 网页文件中需要在编译时替换为 `_hash` 的标签属性。格式为 `tag:attribute` 。如果想对所有标签的某个属性替换，请使用 `*` 代替 `tag`，如所有标签的 `src` 属性都需要替换，则使用 `*:src`。
+
+## pug 模版支持的一些约定
+
+`pug` 模版灵活的语法，网页可以被拆分成很多没有规律的代码片段，这种复杂的结构导致了自动注入代码变得很困难，为了简化自动注入代码的逻辑，现对 `pug` 做以下约定：
+
+- 模版分为两类
+    - `layout` 布局母模版
+    - `pages` 页面入口模版，可以是通用模版，也可以是与 entry points 一一对应的模版（为了兼容 packing v3 以下版本）
+- layout 母模版必须包含以下 `block`
+    - `meta`: 自动注入的 `favico`、`keywords`、`description` 会 append 在该代码末尾
+    - `title`: 自动注入的 `title` 会替换默认网页标题
+    - `style`: 自动注入的 `CSS` 样式表会 append 在该代码末尾
+    - `script`: 自动注入的 `javascript` 脚本会 append 在该代码末尾
+- 使用 `extends` 方式从母模版页面继承入口页面

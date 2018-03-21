@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "loader-utils": "^1.1.0",
+    "packing-glob": "^1.0.1",
     "toposort": "^1.0.6"
   }
 }

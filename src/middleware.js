@@ -1,23 +1,149 @@
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
-/**
- *
-  // template: path.join(__dirname, 'default_index.ejs'),
-  // inject: true,
-  // favicon: false,
-  // chunks: 'all',
-  // excludeChunks: [],
-  // title: 'Webpack App',
- */
+import { isObject } from 'util';
+
+function injectTitle(html, templateEngine, title) {
+  if (title) {
+    // 为 SEO 准备的页面 meta 信息
+    if (templateEngine === 'pug') {
+      html = `${html}\nblock title\n  title ${title}\n`;
+    } else {
+      html = html.replace('__title__', title);
+    }
+  }
+  return html;
+}
+
+function injectMeta(html, templateEngine, favicon, keywords, description) {
+  if (templateEngine === 'pug') {
+    const metaTags = [];
+    if (keywords) {
+      metaTags.push(`  meta(name="keywords" content="${keywords}")`);
+    }
+    if (description) {
+      metaTags.push(`  meta(name="description" content="${description}")`);
+    }
+    if (favicon) {
+      metaTags.push(`  link(rel="icon" type="image/png" href="${favicon}")`);
+    }
+    const metaHtml = metaTags.join('\n');
+    if (metaHtml) {
+      html = `${html}\nblock append meta\n${metaHtml}\n`;
+    }
+  } else {
+    const metaTags = [];
+    if (keywords) {
+      metaTags.push(`  <meta name="keywords" content="${keywords}">`);
+    }
+    if (description) {
+      metaTags.push(`  <meta name="description" content="${description}">`);
+    }
+    if (favicon) {
+      metaTags.push(`  <link rel="icon" type="image/png" href="${favicon}">`);
+    }
+    const metaHtml = metaTags.join('\n');
+    if (metaHtml) {
+      html = html.replace('</head>', `${metaHtml}\n  </head>`);
+    }
+  }
+
+  return html;
+}
+
+function injectStyles(html, templateEngine, chunkName, allChunks, commonChunks) {
+  const publicPath = '/';
+  const styles = Object.keys(allChunks)
+    .filter(key => allChunks[key].endsWith('.css'))
+    .filter(key => key === chunkName || Object.keys(commonChunks).indexOf(key) > -1)
+    .map(key => allChunks[key]);
+
+  if (styles.length > 0) {
+    let styleHtml;
+    if (templateEngine === 'pug') {
+      styleHtml = `block append style\n${
+        styles
+          .map(file => `  link(href="${publicPath + file}" rel="stylesheet")`)
+          .join('\n')
+      }`;
+      html = `${html}\n${styleHtml}\n`;
+    } else {
+      styleHtml = styles
+        .map(file => `  <link href="${publicPath + file}" rel="stylesheet">`)
+        .join('\n');
+      html = html.replace('</head>', `${styleHtml}\n  </head>`);
+    }
+  }
+
+  return html;
+}
+function injectScripts(html, templateEngine, chunkName, allChunks, commonChunks) {
+  const publicPath = '/';
+  const scripts = Object.keys(allChunks)
+    .filter(key => allChunks[key].endsWith('.js'))
+    .filter(key => key === chunkName || Object.keys(commonChunks).indexOf(key) > -1)
+    .map(key => allChunks[key]);
+
+  if (isObject(commonChunks)) {
+    Object.keys(commonChunks).forEach((name) => {
+      scripts.unshift(`${name}.js`);
+    });
+  }
+
+  if (scripts.length > 0) {
+    let scriptHtml;
+    if (templateEngine === 'pug') {
+      scriptHtml = `block append script\n${
+        scripts
+          .map(file => `  script(src="${publicPath + file}")`)
+          .join('\n')
+      }`;
+      html = `${html}\n${scriptHtml}\n`;
+    } else {
+      scriptHtml = scripts
+        .map(file => `  <script src="${publicPath + file}"></script>`)
+        .join('\n');
+      html = html.replace('</head>', `${scriptHtml}\n  </head>`);
+    }
+  }
+
+  return html;
+}
+
 export default (app, appConfig, options) => {
   const { CONTEXT } = process.env;
-  const projectRootPath = CONTEXT ? resolve(CONTEXT) : process.cwd();
-  const { path: { entries }, commonChunks } = appConfig;
+  const context = CONTEXT ? resolve(CONTEXT) : process.cwd();
+  const {
+    path: {
+      entries,
+      templatesPages,
+      mockPageInit
+    },
+    commonChunks,
+    templateEngine,
+    templateExtension,
+    rewriteRules
+  } = appConfig;
+
+  options = {
+    ...{
+      template: resolve(context, `${templatesPages}/default${templateExtension}`),
+      inject: 'body',
+      charset: 'UTF-8',
+      title: '',
+      favicon: false,
+      keywords: false,
+      description: false,
+      chunks: null,
+      excludeChunks: null,
+      chunksSortMode: null
+    },
+    ...options
+  };
 
   // 根据 entry 信息在 express 中添加路由
-  Object.keys(entries).filter(entry => entry !== '__').forEach((chunkName) => {
-    app.get(`/${chunkName}`, (req, res) => {
-      const settingsFile = resolve(projectRootPath, entries[chunkName].replace('.js', '.settings.js'));
+  Object.keys(entries).forEach((chunkName) => {
+    app.get(`/${chunkName}`, (req, res, next) => {
+      const settingsFile = resolve(context, entries[chunkName].replace('.js', '.settings.js'));
       let settings = {};
       if (existsSync(settingsFile)) {
         settings = require(settingsFile);
@@ -31,6 +157,7 @@ export default (app, appConfig, options) => {
       // 2. 注册路由时传递的选项参数（所有页面有效）
       // 3. 默认参数
       const {
+        title,
         template,
         inject,
         favicon,
@@ -40,53 +167,11 @@ export default (app, appConfig, options) => {
         excludeChunks,
         ...templateData
       } = {
-        ...{
-          template: resolve(__dirname, '../templates/default.html'),
-          inject: 'body',
-          charset: 'UTF-8',
-          title: 'untitled',
-          favicon: false,
-          keywords: false,
-          description: false,
-          chunks: null,
-          excludeChunks: null,
-          chunksSortMode: null
-        },
         ...options,
         ...settings
       };
 
       const { assetsByChunkName } = res.locals.webpackStats.toJson();
-      // page chunk 样式引用代码
-      // 开发环境 css inline js，所以输出基本不会有 css
-      const styleHtml = Object.keys(assetsByChunkName)
-        .filter(key => assetsByChunkName[key].endsWith('.css'))
-        .filter(key => key === chunkName || Object.keys(commonChunks).indexOf(key) > -1)
-        .map(key => `  <link href="${assetsByChunkName[key]}" rel="stylesheet">`)
-        .join('\n');
-
-      // 为 SEO 准备的页面 meta 信息
-      const metaTags = [];
-      if (keywords) {
-        metaTags.push(`  <meta name="keywords" content="${keywords}">`);
-      }
-      if (description) {
-        metaTags.push(`  <meta name="description" content="${description}">`);
-      }
-      if (favicon) {
-        metaTags.push(`  <link rel="icon" type="image/png" href="${favicon}">`);
-      }
-      const metaHtml = metaTags.join('\n');
-
-      // common chunks 和 page chunk 脚本引用代码
-      const scriptHtml = Object.keys(commonChunks)
-        .map(key => `  <script src="${key}.js"></script>`)
-        .concat(Object.keys(assetsByChunkName)
-          // .filter(key => key !== '__')
-          .filter(key => assetsByChunkName[key].endsWith('.js'))
-          .filter(key => key === chunkName || Object.keys(commonChunks).indexOf(key) > -1)
-          .map(key => `  <script src="${assetsByChunkName[key]}"></script>`))
-        .join('\n');
 
       let html = '';
       if (existsSync(template)) {
@@ -98,23 +183,29 @@ export default (app, appConfig, options) => {
         throw new Error(`Not found template at ${template}`);
       }
 
+      html = injectTitle(html, templateEngine, title);
+      html = injectMeta(html, templateEngine, favicon, keywords, description);
+      html = injectStyles(html, templateEngine, chunkName, assetsByChunkName, commonChunks);
+      html = injectScripts(html, templateEngine, chunkName, assetsByChunkName, commonChunks);
       html = html
         // 替换格式为 __var__ 用户自定义变量
         .replace(/__(\w+)__/gm, (re, $1) => templateData[$1] || '');
 
-      if (metaHtml) {
-        html = html.replace('</head>', `${metaHtml}\n  </head>`);
+      if (templateEngine === 'html') {
+        res.send(html);
+      } else {
+        res.filename = template;
+        res.template = html;
+        next();
       }
-
-      if (styleHtml) {
-        html = html.replace('</head>', `${styleHtml}\n  </head>`);
-      }
-
-      if (scriptHtml) {
-        html = html.replace(`</${inject}>`, `${scriptHtml}\n  </${inject}>`);
-      }
-
-      res.send(html);
     });
+
+    if (templateEngine !== 'html') {
+      const parser = require(`packing-template-${templateEngine}`);
+      app.get(`/${chunkName}`, parser({
+        mockData: mockPageInit,
+        rewriteRules
+      }));
+    }
   });
 };
