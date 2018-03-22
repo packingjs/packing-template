@@ -194,6 +194,7 @@ export default (app, appConfig, options) => {
       if (templateEngine === 'html') {
         res.send(html);
       } else {
+        // 将模版内容传递到下一个中间件处理
         res.filename = template;
         res.template = html;
         next();
