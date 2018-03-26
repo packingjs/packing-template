@@ -42,13 +42,17 @@ import chunkSorter from './lib/chunksorter';
 export default class PackingTemplatePlugin {
   constructor(appConfig, options = {}) {
     const { CONTEXT } = process.env;
-    const { path: { templatesPages }, templateExtension } = appConfig;
+    const {
+      path: { templatesPages },
+      templateExtension,
+      templateInjectPosition
+    } = appConfig;
     this.context = CONTEXT ? resolve(CONTEXT) : process.cwd();
     this.appConfig = appConfig;
     this.options = {
       ...{
         template: resolve(this.context, `${templatesPages}/default${templateExtension}`),
-        inject: 'body',
+        inject: templateInjectPosition,
         charset: 'UTF-8',
         title: '',
         favicon: false,
@@ -251,7 +255,8 @@ export default class PackingTemplatePlugin {
     const {
       path: { templatesPagesDist },
       commonChunks,
-      templateExtension
+      templateExtension,
+      templateInjectPosition
     } = this.appConfig;
     let { publicPath } = compiler.options.output;
     if (!publicPath.endsWith('/')) {
@@ -292,8 +297,10 @@ export default class PackingTemplatePlugin {
       });
       html = html.join('');
 
-      html = this.injectStyles(html, chunkName, allChunks, commonChunks, publicPath);
-      html = this.injectScripts(html, chunkName, allChunks, commonChunks, publicPath, inject);
+      if (templateInjectPosition) {
+        html = this.injectStyles(html, chunkName, allChunks, commonChunks, publicPath);
+        html = this.injectScripts(html, chunkName, allChunks, commonChunks, publicPath, inject);
+      }
 
       const filename = resolve(this.context, templatesPagesDist, `${chunkName + templateExtension}`);
       mkdirp.sync(dirname(filename));

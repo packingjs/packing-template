@@ -121,13 +121,14 @@ export default (app, appConfig, options) => {
     commonChunks,
     templateEngine,
     templateExtension,
+    templateInjectPosition,
     rewriteRules
   } = appConfig;
 
   options = {
     ...{
       template: resolve(context, `${templatesPages}/default${templateExtension}`),
-      inject: 'body',
+      inject: templateInjectPosition,
       charset: 'UTF-8',
       title: '',
       favicon: false,
@@ -185,8 +186,10 @@ export default (app, appConfig, options) => {
 
       html = injectTitle(html, templateEngine, title);
       html = injectMeta(html, templateEngine, favicon, keywords, description);
-      html = injectStyles(html, templateEngine, chunkName, assetsByChunkName, commonChunks);
-      html = injectScripts(html, templateEngine, chunkName, assetsByChunkName, commonChunks);
+      if (templateInjectPosition) {
+        html = injectStyles(html, templateEngine, chunkName, assetsByChunkName, commonChunks);
+        html = injectScripts(html, templateEngine, chunkName, assetsByChunkName, commonChunks);
+      }
       html = html
         // 替换格式为 __var__ 用户自定义变量
         .replace(/__(\w+)__/gm, (re, $1) => templateData[$1] || '');
