@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
-import { isObject } from 'util';
+import { isObject, isFunction } from 'util';
 
 function injectTitle(html, templateEngine, title) {
   if (title) {
@@ -142,9 +142,10 @@ export default (app, appConfig, options) => {
   };
 
   // 根据 entry 信息在 express 中添加路由
-  Object.keys(entries).forEach((chunkName) => {
+  const entryPoints = isFunction(entries) ? entries() : entries;
+  Object.keys(entryPoints).forEach((chunkName) => {
     app.get(`/${chunkName}`, (req, res, next) => {
-      const settingsFile = resolve(context, entries[chunkName].replace('.js', '.settings.js'));
+      const settingsFile = resolve(context, entryPoints[chunkName].replace('.js', '.settings.js'));
       let settings = {};
       if (existsSync(settingsFile)) {
         settings = require(settingsFile);
@@ -175,8 +176,14 @@ export default (app, appConfig, options) => {
       const { assetsByChunkName } = res.locals.webpackStats.toJson();
 
       let html = '';
+      const chunkNameMapTemplate = resolve(context, `${templatesPages}/${chunkName}/${templateExtension}`);
       if (existsSync(template)) {
         const templateString = readFileSync(template, {
+          encoding: 'utf-8'
+        });
+        html = templateString;
+      } else if (existsSync(chunkNameMapTemplate)) { // 兼容 v3 以下版本
+        const templateString = readFileSync(chunkNameMapTemplate, {
           encoding: 'utf-8'
         });
         html = templateString;
@@ -208,6 +215,7 @@ export default (app, appConfig, options) => {
       const parser = require(`packing-template-${templateEngine}`);
       app.get(`/${chunkName}`, parser({
         mockData: mockPageInit,
+        templates: templatesPages,
         rewriteRules
       }));
     }

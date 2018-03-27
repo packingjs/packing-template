@@ -33,7 +33,7 @@ webpack plugin hooks 执行顺序：
 
 import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
 import { resolve, dirname, parse } from 'path';
-import { isString } from 'util';
+import { isString, isFunction } from 'util';
 import mkdirp from 'mkdirp';
 import loaderUtils from 'loader-utils';
 import glob from 'packing-glob';
@@ -141,13 +141,14 @@ export default class PackingTemplatePlugin {
     const { path: { entries }, commonChunks } = this.appConfig;
 
     // 该 entries 信息包含 commonChunks 配置
-    Object.keys(entries)
+    const entryPoints = isFunction(entries) ? entries() : entries;
+    Object.keys(entryPoints)
       // 排除 commonChunks 入口
       .filter(entry => Object.keys(commonChunks).indexOf(entry) < 0)
       .forEach((chunkName) => {
         let settings = {};
-        if (isString(entries[chunkName])) {
-          const settingsFile = resolve(this.context, entries[chunkName].replace('.js', '.settings.js'));
+        if (isString(entryPoints[chunkName])) {
+          const settingsFile = resolve(this.context, entryPoints[chunkName].replace('.js', '.settings.js'));
           if (existsSync(settingsFile)) {
             settings = require(settingsFile);
             if (settings.default) {
