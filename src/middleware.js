@@ -125,6 +125,8 @@ export default (app, appConfig, options) => {
     rewriteRules
   } = appConfig;
 
+  const basedir = appConfig.path.templates;
+
   options = {
     ...{
       template: resolve(context, `${templatesPages}/default${templateExtension}`),
@@ -206,6 +208,7 @@ export default (app, appConfig, options) => {
       } else {
         // 将模版内容传递到下一个中间件处理
         res.filename = template;
+        res.basedir = basedir;
         res.template = html;
         next();
       }
