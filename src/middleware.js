@@ -76,7 +76,7 @@ function injectStyles(html, templateEngine, chunkName, allChunks, commonChunks) 
 
   return html;
 }
-function injectScripts(html, templateEngine, chunkName, allChunks, commonChunks) {
+function injectScripts(html, templateEngine, chunkName, allChunks, commonChunks, inject) {
   const publicPath = '/';
   const scripts = Object.keys(allChunks)
     .filter(key => allChunks[key].endsWith('.js'))
@@ -102,7 +102,7 @@ function injectScripts(html, templateEngine, chunkName, allChunks, commonChunks)
       scriptHtml = scripts
         .map(file => `  <script src="${publicPath + file}"></script>`)
         .join('\n');
-      html = html.replace('</head>', `${scriptHtml}\n  </head>`);
+      html = html.replace(`</${inject}>`, `${scriptHtml}\n  </head>`);
     }
   }
 
@@ -197,7 +197,7 @@ export default (app, appConfig, options) => {
       html = injectMeta(html, templateEngine, favicon, keywords, description);
       if (templateInjectPosition) {
         html = injectStyles(html, templateEngine, chunkName, assetsByChunkName, commonChunks);
-        html = injectScripts(html, templateEngine, chunkName, assetsByChunkName, commonChunks);
+        html = injectScripts(html, templateEngine, chunkName, assetsByChunkName, commonChunks, options.inject); // eslint-disable-line
       }
       html = html
         // 替换格式为 __var__ 用户自定义变量
