@@ -498,16 +498,21 @@ export default class PackingTemplatePlugin {
       const scriptHtml = allChunks
         .map((chunk) => {
           if (templateEngine === 'pug') {
-            return `  script(src="${publicPath + chunk.files[0]}")`;
+            return chunk.files
+              .filter(file => file.endsWith('.js'))
+              .map(file => `  script(src="${publicPath + file}")`)
+              .join('\n');
           }
-          return `  <script src="${publicPath + chunk.files[0]}"></script>`;
+          return chunk.files
+            .filter(file => file.endsWith('.js'))
+            .map(file => `  <script src="${publicPath + file}"></script>`)
+            .join('\n');
         })
         .join('\n');
 
       if (templateEngine === 'pug') {
         html = `${html}\nblock append script\n${scriptHtml}\n`;
       } else {
-        // html = html.replace('</head>', `${styleHtml}\n  </head>`);
         html = html.replace(`</${inject}>`, `${scriptHtml}\n  </${inject}>`);
       }
     }
