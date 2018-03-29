@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+<a name="1.2.4"></a>
+## [1.2.4](https://github.com/packingjs/packing-template/compare/v1.2.3...v1.2.4) (2018-03-29)
+
+
+### Bug Fixes
+
+* **middleware:** 当使用 html 模版并且使用 react 时出现 Target container is not a DOM 错误 ([370dece](https://github.com/packingjs/packing-template/commit/370dece))
+* 兼容 mini-css-extract-plugin ([af24a12](https://github.com/packingjs/packing-template/commit/af24a12))
+
+
+
 <a name="1.2.3"></a>
 ## [1.2.3](https://github.com/packingjs/packing-template/compare/v1.2.2...v1.2.3) (2018-03-27)
 
