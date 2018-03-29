@@ -403,7 +403,7 @@ export default class PackingTemplatePlugin {
       if (templateEngine === 'pug') {
         html = `${html}\nblock title\n  title ${title}\n`;
       } else {
-        html = html.replace('__title__', title);
+        html = html.replace(/__title__/g, title);
       }
     }
     return html;
