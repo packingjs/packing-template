@@ -247,21 +247,20 @@ chunk 包在页面中插入的顺序。
 
 是否在网页中插入 description meta标签。当取值不是 `false` 时，该值表示 description 的值。
 
-##### filename
-类型: `String`
-
-默认值: `[path][name]_[hash:8].[ext]`
-
-是否在网页中插入 description meta标签。当取值不是 `false` 时，该值表示 description 的值。
-
-
-
 ##### attrs
 类型: `Array`
 
 默认值: `[img:src, link:href]`
 
 网页文件中需要在编译时替换为 `_hash` 的标签属性。格式为 `tag:attribute` 。如果想对所有标签的某个属性替换，请使用 `*` 代替 `tag`，如所有标签的 `src` 属性都需要替换，则使用 `*:src`。
+
+##### filename
+类型: `String`
+
+默认值: `[path][name]_[hash:8].[ext]`
+
+模版中命中的静态文件编译输出的文件名。
+
 
 ## pug 模版支持的一些约定
 
