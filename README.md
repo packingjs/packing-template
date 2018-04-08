@@ -247,6 +247,15 @@ chunk 包在页面中插入的顺序。
 
 是否在网页中插入 description meta标签。当取值不是 `false` 时，该值表示 description 的值。
 
+##### filename
+类型: `String`
+
+默认值: `[path][name]_[hash:8].[ext]`
+
+是否在网页中插入 description meta标签。当取值不是 `false` 时，该值表示 description 的值。
+
+
+
 ##### attrs
 类型: `Array`
 
